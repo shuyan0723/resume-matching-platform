@@ -20,7 +20,6 @@ export enum UserStatus {
 export class User extends BaseEntity {
   @ApiProperty({ description: '邮箱' })
   @Column({ type: 'varchar', length: 255, unique: true })
-  @Index()
   email: string;
 
   @Column({ type: 'varchar', length: 255, select: false })

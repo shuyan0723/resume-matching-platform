@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MulterModule } from '@nestjs/platform-express';
-import { UploadService } from './upload.service';
+import { UploadService, ALLOWED_FILE_TYPES, FILE_SIZE_LIMITS } from './upload.service';
 import { UploadController } from './upload.controller';
 
 /**
@@ -10,16 +10,19 @@ import { UploadController } from './upload.controller';
  */
 @Module({
   imports: [
-    MulterModule.register({
-      // TODO: 配置文件存储路径、文件大小限制等
-      dest: './uploads',
-      limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB
-      },
+    MulterModule.registerAsync({
+      useFactory: (uploadService: UploadService) => ({
+        storage: uploadService.getStorageConfig('general'),
+        fileFilter: uploadService.getFileFilter(ALLOWED_FILE_TYPES.general),
+        limits: {
+          fileSize: FILE_SIZE_LIMITS.general,
+        },
+      }),
+      inject: [UploadService],
     }),
   ],
   providers: [UploadService],
   controllers: [UploadController],
-  exports: [UploadService],
+  exports: [UploadService, MulterModule],
 })
 export class UploadModule {}

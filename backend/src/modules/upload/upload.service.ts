@@ -1,7 +1,32 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { diskStorage } from 'multer';
 import { extname, join } from 'path';
+import { existsSync, mkdirSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * 允许的文件类型（按上传类型分类）
+ */
+export const ALLOWED_FILE_TYPES: Record<string, string[]> = {
+  resume: [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ],
+  avatar: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+  logo: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'],
+  general: ['application/pdf', 'image/jpeg', 'image/png', 'text/plain'],
+};
+
+/**
+ * 文件大小限制（字节）
+ */
+export const FILE_SIZE_LIMITS: Record<string, number> = {
+  resume: 10 * 1024 * 1024,     // 10MB
+  avatar: 2 * 1024 * 1024,      // 2MB
+  logo: 2 * 1024 * 1024,        // 2MB
+  general: 10 * 1024 * 1024,    // 10MB
+};
 
 /**
  * 文件上传服务
@@ -11,7 +36,7 @@ import { v4 as uuidv4 } from 'uuid';
 export class UploadService {
   /**
    * 上传文件
-   * @param file 上传的文件对象
+   * @param file 上传的文件对象（Multer 已通过 FileInterceptor 落盘）
    * @param uploadType 上传类型（resume/avatar/logo等）
    * @returns 文件信息（文件名、路径、大小等）
    */
@@ -26,12 +51,33 @@ export class UploadService {
     fileType: string;
     url: string;
   }> {
-    // TODO: 根据 uploadType 确定存储目录
-    // TODO: 验证文件类型和大小
-    // TODO: 可能需要生成缩略图等
+    if (!file) {
+      throw new BadRequestException('请选择要上传的文件');
+    }
+
+    const allowedTypes = ALLOWED_FILE_TYPES[uploadType] || ALLOWED_FILE_TYPES.general;
+    const maxSize = FILE_SIZE_LIMITS[uploadType] || FILE_SIZE_LIMITS.general;
+
+    // 真实执行文件类型校验（配合 Multer filter 做双重保险）
+    if (!this.validateFileType(file.mimetype, allowedTypes)) {
+      throw new BadRequestException(
+        `不支持的文件类型 ${file.mimetype}，${uploadType} 仅支持：${allowedTypes.join('、')}`,
+      );
+    }
+
+    if (!this.validateFileSize(file.size, maxSize)) {
+      throw new BadRequestException(
+        `文件过大（${(file.size / 1024 / 1024).toFixed(2)}MB），限制为 ${(maxSize / 1024 / 1024)}MB`,
+      );
+    }
+
+    const uploadDir = join('uploads', uploadType);
+    if (!existsSync(uploadDir)) {
+      mkdirSync(uploadDir, { recursive: true });
+    }
 
     const fileName = this.generateFileName(file.originalname);
-    const relativePath = join('uploads', uploadType, fileName);
+    const relativePath = join(uploadDir, fileName).replace(/\\/g, '/');
 
     return {
       fileName,
@@ -82,8 +128,11 @@ export class UploadService {
   getStorageConfig(uploadType: string = 'general') {
     return diskStorage({
       destination: (req, file, cb) => {
-        // TODO: 根据类型创建不同目录
+        // 真实根据类型创建目录，不存在则递归创建
         const uploadDir = `./uploads/${uploadType}`;
+        if (!existsSync(uploadDir)) {
+          mkdirSync(uploadDir, { recursive: true });
+        }
         cb(null, uploadDir);
       },
       filename: (req, file, cb) => {

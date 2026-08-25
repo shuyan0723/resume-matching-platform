@@ -1,3 +1,4 @@
+import './preload'; // 必须是第一个 import，确保 .env 在所有同步装饰器前加载
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
