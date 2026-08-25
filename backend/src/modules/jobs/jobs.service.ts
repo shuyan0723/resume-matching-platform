@@ -37,19 +37,21 @@ export class JobsService {
    * 分页查询职位列表
    * @param paginationDto 分页参数
    * @param filters 过滤条件
-   * @returns 分页结果
+   * @param options.defaultOnlyOpen 默认 true：未传 status 时仅返回 OPEN；企业端查自己时传 false 返回全部状态
    */
   async findAll(
     paginationDto: PaginationDto,
     filters?: Record<string, any>,
+    options?: { defaultOnlyOpen?: boolean },
   ): Promise<PaginatedResult<Job>> {
+    const defaultOnlyOpen = options?.defaultOnlyOpen !== false;
     const queryBuilder = this.jobsRepository.createQueryBuilder('job');
 
-    // 默认只显示已发布的职位
-    if (!filters?.status) {
-      queryBuilder.where('job.status = :status', { status: JobStatus.OPEN });
-    } else {
+    // 状态过滤
+    if (filters?.status) {
       queryBuilder.where('job.status = :status', { status: filters.status });
+    } else if (defaultOnlyOpen) {
+      queryBuilder.where('job.status = :status', { status: JobStatus.OPEN });
     }
 
     // 按公司过滤
@@ -109,9 +111,9 @@ export class JobsService {
   }
 
   /**
-   * 发布职位
+   * 发布/开启职位
    * @param id 职位ID
-   * @returns 发布后的职位
+   * @returns 更新后的职位
    */
   async publish(id: number): Promise<Job> {
     await this.jobsRepository.update(id, {
@@ -122,7 +124,18 @@ export class JobsService {
   }
 
   /**
-   * 关闭职位
+   * 暂停招聘（职位仍存在，但对求职者不再展示）
+   * @param id 职位ID
+   */
+  async pause(id: number): Promise<Job> {
+    await this.jobsRepository.update(id, {
+      status: JobStatus.PAUSED,
+    });
+    return this.jobsRepository.findOne({ where: { id } });
+  }
+
+  /**
+   * 关闭职位（结束招聘）
    * @param id 职位ID
    * @returns 关闭后的职位
    */
