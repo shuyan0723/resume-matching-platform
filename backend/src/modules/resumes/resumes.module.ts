@@ -7,6 +7,8 @@ import { Education } from './education.entity';
 import { Project } from './project.entity';
 import { ResumesService } from './resumes.service';
 import { ResumesController } from './resumes.controller';
+import { UploadModule } from '../upload/upload.module';
+import { AiModule } from '../ai/ai.module';
 
 /**
  * 简历模块
@@ -19,6 +21,8 @@ import { ResumesController } from './resumes.controller';
     BullModule.registerQueue({
       name: 'resume-parse',
     }),
+    UploadModule,
+    AiModule,
   ],
   providers: [ResumesService],
   controllers: [ResumesController],

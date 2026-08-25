@@ -21,6 +21,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (user.status !== 'active') {
       throw new UnauthorizedException('账号已被禁用');
     }
-    return { id: user.id, email: user.email, role: user.role };
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      candidateId: user.candidate?.id || null,
+      companyId: user.company?.id || null,
+    };
   }
 }
