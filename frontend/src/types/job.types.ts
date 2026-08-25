@@ -22,6 +22,14 @@ export enum JobStatus {
   CLOSED = 'closed',
 }
 
+export interface PaginatedResult<T> {
+  list: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export interface Job {
   id: number;
   companyId: number;
@@ -59,6 +67,8 @@ export interface JobListParams {
   page?: number;
   pageSize?: number;
   keyword?: string;
+  status?: string;
+  companyId?: number;
   location?: string;
   salaryMin?: number;
   salaryMax?: number;
@@ -66,3 +76,4 @@ export interface JobListParams {
   education?: EducationRequirement;
   jobType?: JobType;
 }
+

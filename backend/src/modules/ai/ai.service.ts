@@ -1,23 +1,51 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { AiConfig } from './ai.config';
+import { LlmHttpClient } from './ai.llm.client';
+import { AI_PROMPTS, safeParseJson } from './ai.prompts';
 
 /**
  * AI 服务
- * 封装各类 AI 能力，供其他模块调用
- * 包括：简历解析、JD 提取、简历优化建议、匹配理由生成、文本向量化
+ *
+ * 调用流程：
+ *   业务层 (resumes / jobs / matching)
+ *        → AiService
+ *          → AiConfig (读取 .env，判断是否可用)
+ *          → LlmHttpClient (axios 封装 + 超时 + 重试，失败返回 null)
+ *          → AI_PROMPTS (统一模板 + JSON 解析兜底)
+ *
+ * 降级策略：
+ *   - LLM 未配置或调用失败：返回「安全空结构」，让调用方规则/关键词逻辑继续工作。
+ *   - 前端/日志会感知到 AI 未启用（confidence=0 / suggestions 为空等），便于后续 LLM 接口到位后验证。
  */
 @Injectable()
 export class AiService {
-  constructor() {
-    // TODO: 初始化 AI 模型客户端（如 OpenAI、本地模型等）
+  private readonly logger = new Logger(AiService.name);
+
+  constructor(
+    private readonly config: AiConfig,
+    private readonly llm: LlmHttpClient,
+  ) {
+    if (this.config.llmAvailable) {
+      this.logger.log(
+        `AI 服务已启用 provider=${this.config.provider} model=${this.config.model} baseURL=${this.config.baseURL}`,
+      );
+    } else {
+      this.logger.warn(
+        'AI 服务处于 Mock 降级模式。待提供 LLM 接口后，在 .env 中填入 LLM_PROVIDER / LLM_BASE_URL / LLM_API_KEY / LLM_MODEL 即可启用。',
+      );
+    }
   }
 
   /**
-   * 解析简历内容
-   * 从简历文件或文本中提取结构化信息
-   * @param fileContent 简历文件内容或文本
-   * @param fileType 文件类型
-   * @returns 结构化的简历信息
+   * 对外暴露：当前 LLM 是否真实可用（用于调用方是否走 AI 分支的判断）
    */
+  get llmAvailable(): boolean {
+    return this.config.llmAvailable;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 1. 简历结构化解析
+  // ---------------------------------------------------------------------------
   async parseResume(
     fileContent: string,
     fileType: string = 'text',
@@ -32,14 +60,7 @@ export class AiService {
     summary: string;
     confidence: number;
   }> {
-    // TODO: 调用 AI 模型解析简历
-    // 1. 如果是 PDF/Word 文件，先提取文本
-    // 2. 调用大模型进行结构化提取
-    // 3. 解析结果并校验
-    // 4. 返回结构化数据
-
-    // Mock 数据
-    return {
+    const fallback = {
       name: '',
       phone: '',
       email: '',
@@ -50,14 +71,37 @@ export class AiService {
       summary: '',
       confidence: 0,
     };
+
+    const text = await this.llm.createChatCompletion(
+      [
+        { role: 'system', content: AI_PROMPTS.parseResume.system },
+        {
+          role: 'user',
+          content: AI_PROMPTS.parseResume.buildUser(fileContent || '', fileType),
+        },
+      ],
+      { temperature: 0.1, responseFormat: { type: 'json_object' }, maxTokens: 4000 },
+    );
+    if (!text) return fallback;
+    const parsed = safeParseJson<any>(text, null);
+    if (!parsed) return fallback;
+
+    return {
+      name: String(parsed.name || '').trim(),
+      phone: String(parsed.phone || '').trim(),
+      email: String(parsed.email || '').trim().toLowerCase(),
+      education: Array.isArray(parsed.education) ? parsed.education : [],
+      workExperience: Array.isArray(parsed.workExperience) ? parsed.workExperience : [],
+      projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      skills: Array.isArray(parsed.skills) ? parsed.skills.map((s: any) => String(s).trim()).filter(Boolean) : [],
+      summary: String(parsed.summary || '').trim(),
+      confidence: Number.isFinite(Number(parsed.confidence)) ? Math.min(1, Math.max(0, Number(parsed.confidence))) : 0,
+    };
   }
 
-  /**
-   * 提取职位描述（JD）信息
-   * 从职位描述中提取结构化的职位要求
-   * @param jdText 职位描述文本
-   * @returns 结构化的职位要求信息
-   */
+  // ---------------------------------------------------------------------------
+  // 2. JD 抽取
+  // ---------------------------------------------------------------------------
   async extractJD(jdText: string): Promise<{
     title: string;
     requiredSkills: string[];
@@ -68,13 +112,7 @@ export class AiService {
     responsibilities: string[];
     requirements: string[];
   }> {
-    // TODO: 调用 AI 模型提取 JD 信息
-    // 1. 分析职位描述文本
-    // 2. 提取技能要求、经验要求、学历要求等
-    // 3. 结构化输出
-
-    // Mock 数据
-    return {
+    const fallback = {
       title: '',
       requiredSkills: [],
       preferredSkills: [],
@@ -84,15 +122,41 @@ export class AiService {
       responsibilities: [],
       requirements: [],
     };
+    const text = await this.llm.createChatCompletion(
+      [
+        { role: 'system', content: AI_PROMPTS.extractJD.system },
+        { role: 'user', content: AI_PROMPTS.extractJD.buildUser(jdText || '') },
+      ],
+      { temperature: 0.1, responseFormat: { type: 'json_object' }, maxTokens: 2500 },
+    );
+    if (!text) return fallback;
+    const parsed = safeParseJson<any>(text, null);
+    if (!parsed) return fallback;
+
+    const asNumOrNull = (v: any) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Number(v) : null);
+    return {
+      title: String(parsed.title || '').trim(),
+      requiredSkills: Array.isArray(parsed.requiredSkills)
+        ? parsed.requiredSkills.map((s: any) => String(s).trim()).filter(Boolean)
+        : [],
+      preferredSkills: Array.isArray(parsed.preferredSkills)
+        ? parsed.preferredSkills.map((s: any) => String(s).trim()).filter(Boolean)
+        : [],
+      experienceMin: asNumOrNull(parsed.experienceMin),
+      experienceMax: asNumOrNull(parsed.experienceMax),
+      educationRequirement: parsed.educationRequirement ? String(parsed.educationRequirement) : null,
+      responsibilities: Array.isArray(parsed.responsibilities)
+        ? parsed.responsibilities.map((s: any) => String(s)).filter(Boolean)
+        : [],
+      requirements: Array.isArray(parsed.requirements)
+        ? parsed.requirements.map((s: any) => String(s)).filter(Boolean)
+        : [],
+    };
   }
 
-  /**
-   * 生成简历优化建议
-   * 根据目标职位要求，为简历提供优化建议
-   * @param resumeData 简历数据
-   * @param jobDescription 目标职位描述
-   * @returns 优化建议列表
-   */
+  // ---------------------------------------------------------------------------
+  // 3. 简历优化建议
+  // ---------------------------------------------------------------------------
   async generateResumeSuggestions(
     resumeData: Record<string, any>,
     jobDescription: string,
@@ -106,33 +170,42 @@ export class AiService {
       suggestedText?: string;
     }>;
   }> {
-    // TODO: 调用 AI 模型生成简历优化建议
-    // 1. 分析简历与目标职位的匹配度
-    // 2. 识别简历中的不足之处
-    // 3. 生成针对性的优化建议
-    // 4. 按优先级和分类组织建议
-
-    // Mock 数据
-    return {
-      overallScore: 75,
-      suggestions: [
+    const fallback = { overallScore: 0, suggestions: [] };
+    const text = await this.llm.createChatCompletion(
+      [
+        { role: 'system', content: AI_PROMPTS.resumeSuggestions.system },
         {
-          category: '技能',
-          priority: 'high',
-          content: '建议添加与目标职位相关的技能关键词',
+          role: 'user',
+          content: AI_PROMPTS.resumeSuggestions.buildUser(
+            JSON.stringify(resumeData || {}),
+            jobDescription || '',
+          ),
         },
       ],
+      { temperature: 0.4, responseFormat: { type: 'json_object' }, maxTokens: 4000 },
+    );
+    if (!text) return fallback;
+    const parsed = safeParseJson<any>(text, null);
+    if (!parsed) return fallback;
+    const score = Number.isFinite(Number(parsed.overallScore))
+      ? Math.min(100, Math.max(0, Number(parsed.overallScore)))
+      : 0;
+    const list = Array.isArray(parsed.suggestions) ? parsed.suggestions : [];
+    return {
+      overallScore: score,
+      suggestions: list.map((s: any) => ({
+        category: String(s.category || '其他'),
+        priority: (['high', 'medium', 'low'].includes(s.priority) ? s.priority : 'medium') as any,
+        content: String(s.content || '').trim(),
+        originalText: s.originalText ? String(s.originalText) : undefined,
+        suggestedText: s.suggestedText ? String(s.suggestedText) : undefined,
+      })).filter((x: any) => x.content),
     };
   }
 
-  /**
-   * 生成匹配理由
-   * 根据简历和职位信息，生成自然语言的匹配理由
-   * @param resumeData 简历数据
-   * @param jobData 职位数据
-   * @param matchScore 匹配分数
-   * @returns 匹配理由文本
-   */
+  // ---------------------------------------------------------------------------
+  // 4. 匹配理由
+  // ---------------------------------------------------------------------------
   async generateMatchReason(
     resumeData: Record<string, any>,
     jobData: Record<string, any>,
@@ -143,75 +216,64 @@ export class AiService {
     gaps: string[];
     overallReason: string;
   }> {
-    // TODO: 调用 AI 模型生成匹配理由
-    // 1. 分析简历与职位的匹配点
-    // 2. 识别优势和差距
-    // 3. 生成自然语言的匹配说明
-
-    // Mock 数据
+    const fallback = { summary: '', strengths: [], gaps: [], overallReason: '' };
+    const text = await this.llm.createChatCompletion(
+      [
+        { role: 'system', content: AI_PROMPTS.matchReason.system },
+        {
+          role: 'user',
+          content: AI_PROMPTS.matchReason.buildUser(
+            JSON.stringify(resumeData || {}),
+            JSON.stringify(jobData || {}),
+            matchScore,
+          ),
+        },
+      ],
+      { temperature: 0.3, responseFormat: { type: 'json_object' }, maxTokens: 1500 },
+    );
+    if (!text) return fallback;
+    const parsed = safeParseJson<any>(text, null);
+    if (!parsed) return fallback;
     return {
-      summary: '',
-      strengths: [],
-      gaps: [],
-      overallReason: '',
+      summary: String(parsed.summary || '').trim(),
+      strengths: Array.isArray(parsed.strengths)
+        ? parsed.strengths.map((s: any) => String(s)).filter(Boolean)
+        : [],
+      gaps: Array.isArray(parsed.gaps)
+        ? parsed.gaps.map((s: any) => String(s)).filter(Boolean)
+        : [],
+      overallReason: String(parsed.overallReason || '').trim(),
     };
   }
 
-  /**
-   * 文本向量化
-   * 将文本转换为向量表示，用于相似度计算
-   * @param text 输入文本
-   * @returns 向量数组
-   */
+  // ---------------------------------------------------------------------------
+  // 5. 向量化 + 相似度（未配置 embedding 时返回空数组，走关键词分支）
+  // ---------------------------------------------------------------------------
   async vectorize(text: string): Promise<number[]> {
-    // TODO: 调用向量模型生成文本向量
-    // 1. 预处理文本
-    // 2. 调用嵌入模型
-    // 3. 返回向量表示
-
-    // Mock 数据（返回空数组，实际应返回向量）
-    return [];
+    if (!text) return [];
+    const vec = await this.llm.createEmbedding(text);
+    return Array.isArray(vec) ? vec : [];
   }
 
-  /**
-   * 批量文本向量化
-   * @param texts 文本数组
-   * @returns 向量数组
-   */
   async vectorizeBatch(texts: string[]): Promise<number[][]> {
-    // TODO: 批量调用向量模型
-    const vectors: number[][] = [];
-    for (const text of texts) {
-      vectors.push(await this.vectorize(text));
-    }
-    return vectors;
+    if (!texts?.length) return [];
+    const res = await this.llm.createEmbeddingBatch(texts);
+    return res.map((v) => (Array.isArray(v) ? v : []));
   }
 
-  /**
-   * 计算两个向量的余弦相似度
-   * @param vecA 向量A
-   * @param vecB 向量B
-   * @returns 相似度分数（0-1）
-   */
   cosineSimilarity(vecA: number[], vecB: number[]): number {
-    if (vecA.length !== vecB.length || vecA.length === 0) {
-      return 0;
-    }
-
-    let dotProduct = 0;
+    if (vecA.length !== vecB.length || vecA.length === 0) return 0;
+    let dot = 0;
     let normA = 0;
     let normB = 0;
-
     for (let i = 0; i < vecA.length; i++) {
-      dotProduct += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
+      const a = Number(vecA[i]) || 0;
+      const b = Number(vecB[i]) || 0;
+      dot += a * b;
+      normA += a * a;
+      normB += b * b;
     }
-
-    if (normA === 0 || normB === 0) {
-      return 0;
-    }
-
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+    if (normA === 0 || normB === 0) return 0;
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
   }
 }
