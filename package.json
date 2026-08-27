@@ -1,21 +1,29 @@
 {
   "name": "resume-matching-platform",
   "version": "1.0.0",
-  "description": "智能简历分析与岗位匹配平台",
   "private": true,
+  "description": "智能简历分析与岗位匹配平台 (Monorepo)",
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=18.18.0"
+  },
   "scripts": {
-    "dev:backend": "cd backend && npm run start:dev",
-    "dev:frontend": "cd frontend && npm run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "build:backend": "cd backend && npm run build",
-    "build:frontend": "cd frontend && npm run build",
-    "build": "npm run build:backend && npm run build:frontend",
+    "dev": "turbo run dev",
+    "dev:backend": "turbo run start:dev --filter=@app/backend",
+    "dev:frontend": "turbo run dev --filter=@app/frontend",
+    "build": "turbo run build",
+    "build:backend": "turbo run build --filter=@app/backend",
+    "build:frontend": "turbo run build --filter=@app/frontend",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,json,css,md}\" \"packages/**/*.{ts,tsx,json,css,md}\"",
+    "typecheck": "turbo run typecheck",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",
-    "db:migrate": "cd backend && npm run migration:run",
-    "db:seed": "cd backend && npm run seed"
+    "db:seed": "turbo run seed --filter=@app/backend"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "turbo": "^2.0.0",
+    "prettier": "^3.2.4",
+    "typescript": "^5.3.3"
   }
 }

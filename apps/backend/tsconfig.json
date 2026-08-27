@@ -1,0 +1,22 @@
+{
+  "extends": "@app/tsconfig/nest.json",
+  "compilerOptions": {
+    // Nest 默认关闭 strict，保持与之前行为一致，避免一次性引入大量类型错误
+    "strict": false,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false,
+    "declaration": true,
+    "removeComments": true,
+    "paths": {
+      "@/*": ["src/*"],
+      "@common/*": ["src/common/*"],
+      "@config/*": ["src/config/*"],
+      "@modules/*": ["src/modules/*"],
+      "@app/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@app/shared-types/*": ["../../packages/shared-types/src/*"]
+    }
+  }
+}

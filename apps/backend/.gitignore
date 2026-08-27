@@ -1,0 +1,8 @@
+# 通用 Node 忽略
+node_modules
+dist
+coverage
+.env
+.env.local
+*.log
+.turbo

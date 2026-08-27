@@ -1,0 +1,11 @@
+# 前端构建产物与 Node 忽略
+node_modules
+dist
+dist-ssr
+coverage
+.env
+.env.local
+*.log
+.turbo
+.DS_Store
+.vite

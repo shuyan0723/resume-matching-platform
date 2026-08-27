@@ -1,0 +1,30 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalDependencies": ["**/.env.*local"],
+  "pipeline": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", ".output/**"],
+      "env": ["LLM_*", "EMBEDDING_*", "DB_*", "REDIS_*", "JWT_*", "PORT", "API_PREFIX", "VITE_*"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "start:dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "preview": {
+      "dependsOn": ["build"],
+      "cache": false
+    },
+    "start:prod": {
+      "dependsOn": ["build"],
+      "cache": false
+    }
+  }
+}

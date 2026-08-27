@@ -1,0 +1,26 @@
+{
+  "extends": "@app/tsconfig/vite.json",
+  "compilerOptions": {
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    // 保留过渡别名：@app-types/* 依旧能指向本地 types，便于逐个替换
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@components/*": ["src/components/*"],
+      "@pages/*": ["src/pages/*"],
+      "@api/*": ["src/api/*"],
+      "@store/*": ["src/store/*"],
+      "@utils/*": ["src/utils/*"],
+      "@layouts/*": ["src/layouts/*"],
+      "@styles/*": ["src/styles/*"],
+      "@router/*": ["src/router/*"],
+      "@assets/*": ["src/assets/*"],
+      "@app-types/*": ["src/types/*"],
+      "@app/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@app/shared-types/*": ["../../packages/shared-types/src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
